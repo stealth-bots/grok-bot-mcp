@@ -71,7 +71,7 @@ The message body is not stored. The store keeps `job_id`, caller name, status, a
 - `message` is capped at 16 KB of UTF-8. Replies and errors are capped at 64 KB. Jobs expire after 24 hours.
 - The webhook call uses an 8 second timeout, one try, and does not follow redirects, so the webhook key is not forwarded to another host.
 - Logs are an allowlist of fields (`caller`, `job_id`, status, byte counts). Secrets and message bodies are not logged.
-- On Vercel the process refuses to serve unless Upstash Redis REST credentials are set. An in-memory store is for one local process only. Serverless isolates do not share it, so a callback would land somewhere the waiting request cannot see. The Cloudflare Worker also refuses to serve unless a durable store (Upstash or the `JOBS` KV binding) and the required secrets are set. It does not fall back to memory.
+- On Vercel and other Node hosts the process refuses to serve unless Upstash Redis REST credentials are set. The Cloudflare Worker refuses to serve unless the D1 binding `DB` and the required secrets are set. `pnpm dev` is the only process that uses an in-memory store. Serverless isolates do not share that memory, so a callback would land somewhere the waiting request cannot see.
 - Each process allows 30 `ask_bot` calls per caller per minute. Over the limit, the tool returns an error and does not call the webhook. The counter is not shared across isolates.
 
 ## Environment variables
@@ -85,19 +85,19 @@ Copy `.env.example` to `.env` for local development. Do not commit `.env`.
 | `REPLY_SECRET` | yes | Bearer token the bot sends to `/api/reply`. Different from the webhook key and the MCP keys. |
 | `MCP_API_KEY` | yes | Comma-separated `name:secret` keys. Example: `claude:aaa,cursor:bbb`. A secret may contain colons; a name may not. An entry with no colon is named `key-1`, `key-2`, and so on. Clients send only the secret. The `name:secret` value is not a bearer token. |
 | `PUBLIC_BASE_URL` | yes | Public origin of this deployment, no path and no trailing slash. `reply_url` is `${PUBLIC_BASE_URL}/api/reply`. |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | yes on Vercel | Upstash Redis REST. Strongly consistent, so the wait loop can see the callback. |
-| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | alias | Accepted instead of the `UPSTASH_REDIS_REST_*` names (Vercel KV). |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | yes on Vercel / Node | Upstash Redis REST. Strongly consistent, so the wait loop can see the callback. Not used by the Worker. |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | alias | Accepted on Vercel / Node instead of the `UPSTASH_REDIS_REST_*` names. |
 | `WAIT_SECONDS` | no | How long `ask_bot` polls. Default `25`. Allowed range 0–50. Values above 50 are capped at 50. |
 | `JOB_TTL_SECONDS` | no | Job lifetime. Default `86400`. Minimum `60`. |
 | `MAX_MESSAGE_BYTES` | no | Default `16384`. |
 | `WEBHOOK_TIMEOUT_MS` | no | Default `8000`. |
 | `PORT` | no | Local dev server port. Default `3000`. |
 
-Storage choice, in order:
+Storage follows the process:
 
-1. Upstash (or Vercel KV) REST, if those variables are set. Use this in production, including on Cloudflare, if you want `ask_bot` to observe the callback within the wait window. Completing a job is one atomic Redis update that keeps the existing TTL. A second reply for that job gets HTTP 409.
-2. Cloudflare Workers KV binding `JOBS`, if present and Upstash is not set. KV is eventually consistent, so a reply written by the callback can stay invisible to the waiting request for a while. `get_reply` a bit later is the reliable path on KV. KV cannot compare-and-set, so a duplicate reply for the same job is last-write-wins. That is acceptable because job ids are random and the bot replies once. Use Upstash when you need strict once-only completion.
-3. In-memory, for local `pnpm dev` and tests only.
+1. Cloudflare Workers use the D1 binding `DB`. Completing a job is one `UPDATE ... WHERE status = 'pending'`. The statement changes one row or none, so a second reply gets HTTP 409. The original `expires_at` stays in place.
+2. Vercel and other Node hosts use Upstash Redis REST. Completing a job is one atomic Redis update that keeps the existing TTL. A second reply gets HTTP 409.
+3. `pnpm dev` uses an in-memory store for that one process. It does not read Upstash or D1.
 
 ## Local development
 
@@ -110,7 +110,7 @@ cp .env.example .env
 pnpm dev
 ```
 
-`pnpm dev` loads `.env` and then listens on `http://127.0.0.1:3000`. MCP is `POST /api/mcp`. The reply callback is `POST /api/reply`. Without Upstash or Workers KV, the dev server uses the in-memory store.
+`pnpm dev` loads `.env` when that file exists, then listens on `http://127.0.0.1:3000`. MCP is `POST /api/mcp`. The reply callback is `POST /api/reply`. That process always uses the in-memory store.
 
 ```bash
 pnpm test
@@ -145,26 +145,26 @@ Headers: `Content-Type: application/json`, `Authorization: Bearer <GROK_BOT_WEBH
 
 ```bash
 pnpm install
-npx wrangler kv namespace create JOBS
+npx wrangler d1 create grok-bot-mcp
 ```
 
-Put the printed namespace id in `wrangler.toml` under `[[kv_namespaces]]` `id`. Skip KV if you will use Upstash instead.
+Put the printed database id in `wrangler.toml` under `[[d1_databases]]` `database_id`. The binding name is `DB`. Apply the jobs migration, then set secrets and deploy:
 
 ```bash
+npx wrangler d1 migrations apply grok-bot-mcp --remote
 npx wrangler secret put GROK_BOT_WEBHOOK_URL
 npx wrangler secret put GROK_BOT_WEBHOOK_KEY
 npx wrangler secret put REPLY_SECRET
 npx wrangler secret put MCP_API_KEY
 npx wrangler secret put PUBLIC_BASE_URL
-# only when using Upstash instead of, or as well as, KV
-npx wrangler secret put UPSTASH_REDIS_REST_URL
-npx wrangler secret put UPSTASH_REDIS_REST_TOKEN
 npx wrangler deploy
 ```
 
-`PUBLIC_BASE_URL` is the workers.dev (or custom domain) origin, for example `https://grok-bot-mcp.<account>.workers.dev`. When both Upstash and the `JOBS` binding exist, Upstash wins.
+The migration is `migrations/0001_create_jobs.sql`. It creates the `jobs` table. `npx wrangler dev` applies migrations to the local D1 database. To apply them yourself first, run `npx wrangler d1 migrations apply grok-bot-mcp --local`.
 
-The Worker fails closed. A request gets HTTP 503 until either Upstash REST credentials or the `JOBS` binding is present, and until `GROK_BOT_WEBHOOK_URL`, `GROK_BOT_WEBHOOK_KEY`, `REPLY_SECRET`, `MCP_API_KEY`, and `PUBLIC_BASE_URL` are set. Missing config does not silently use the in-memory store. KV completion stays last-write-wins, as described above. Upstash completion stays the atomic update.
+`PUBLIC_BASE_URL` is the workers.dev (or custom domain) origin, for example `https://grok-bot-mcp.<account>.workers.dev`.
+
+The Worker fails closed. A request gets HTTP 503 until the `DB` binding is present and until `GROK_BOT_WEBHOOK_URL`, `GROK_BOT_WEBHOOK_KEY`, `REPLY_SECRET`, `MCP_API_KEY`, and `PUBLIC_BASE_URL` are set. It does not use Upstash or the in-memory store. Completion is the same once-only rule as Upstash: the `UPDATE` changes a row only while `status` is `pending`.
 
 For a local Worker, copy the same values into `.dev.vars` (wrangler does not read `.env`) and run `npx wrangler dev`. Check the bundle without deploying:
 
@@ -285,7 +285,9 @@ ROUTINE PROMPT END
 
 ## Layout
 
-- `src/core/` — auth, job store interface, Upstash, Workers KV, in-memory store, webhook client, MCP tools, reply endpoint
+- `src/lib/job-store/` — internal `JobStore` interface and the D1, Upstash, and in-memory adapters. Not a separate package.
+- `migrations/` — D1 schema (`0001_create_jobs.sql`)
+- `src/core/` — auth, webhook client, MCP tools, reply endpoint
 - `app/api/mcp/route.ts` and `app/api/reply/route.ts` — Vercel / Next.js adapters
 - `src/worker.ts` and `wrangler.toml` — Cloudflare Worker adapter
 - `src/dev-server.ts` — local Node server (`pnpm dev`)

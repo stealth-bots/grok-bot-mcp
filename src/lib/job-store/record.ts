@@ -27,8 +27,3 @@ export function parseJobRecord(raw: string): JobRecord | null {
 function isStatus(value: unknown): value is JobStatus {
   return value === 'pending' || value === 'done' || value === 'error';
 }
-
-export function remainingTtlSeconds(job: JobRecord, now: number, ttlSeconds: number): number {
-  const ageSeconds = Math.floor((now - job.createdAt) / 1000);
-  return ttlSeconds - ageSeconds;
-}

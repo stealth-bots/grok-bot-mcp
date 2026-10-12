@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { KvBinding } from '../src/core/kv-store';
+import type { D1Database } from '../src/lib/job-store';
 import worker, { type WorkerEnv } from '../src/worker';
 
-const kv: KvBinding = {
-  async get() {
-    return null;
+const db: D1Database = {
+  prepare() {
+    throw new Error('unused');
   },
-  async put() {},
 };
 
 function workerEnv(overrides: Partial<WorkerEnv> = {}): WorkerEnv {
@@ -21,15 +20,27 @@ function workerEnv(overrides: Partial<WorkerEnv> = {}): WorkerEnv {
 }
 
 describe('worker configuration', () => {
-  it('fails closed when no durable store is configured', async () => {
+  it('fails closed when the D1 binding is missing', async () => {
     const response = await worker.fetch(new Request('https://mcp.example/'), workerEnv());
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'misconfigured' });
     expect(response.headers.get('content-type')).toContain('application/json');
   });
 
+  it('fails closed when Upstash is set and D1 is missing', async () => {
+    const response = await worker.fetch(
+      new Request('https://mcp.example/'),
+      workerEnv({
+        UPSTASH_REDIS_REST_URL: 'https://redis.example',
+        UPSTASH_REDIS_REST_TOKEN: 'token',
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'misconfigured' });
+  });
+
   it('fails closed when a required secret is missing', async () => {
-    const env = workerEnv({ JOBS: kv });
+    const env = workerEnv({ DB: db });
     delete env.REPLY_SECRET;
     const response = await worker.fetch(new Request('https://mcp.example/'), env);
     const text = await response.text();
@@ -39,30 +50,18 @@ describe('worker configuration', () => {
     expect(text).not.toContain('claude-secret');
   });
 
-  it('fails closed when Upstash credentials are incomplete', async () => {
-    const response = await worker.fetch(
-      new Request('https://mcp.example/'),
-      workerEnv({ JOBS: kv, UPSTASH_REDIS_REST_URL: 'https://redis.example' }),
-    );
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: 'misconfigured' });
-  });
-
-  it('serves when Workers KV and the required secrets are set', async () => {
-    const response = await worker.fetch(new Request('https://mcp.example/'), workerEnv({ JOBS: kv }));
+  it('serves when D1 and the required secrets are set', async () => {
+    const response = await worker.fetch(new Request('https://mcp.example/'), workerEnv({ DB: db }));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ ok: true, mcp: '/api/mcp' });
   });
 
-  it('serves when Upstash is set and KV is not', async () => {
+  it('serves when D1 is set even if Upstash credentials are incomplete', async () => {
     const response = await worker.fetch(
       new Request('https://mcp.example/'),
-      workerEnv({
-        UPSTASH_REDIS_REST_URL: 'https://redis.example',
-        UPSTASH_REDIS_REST_TOKEN: 'token',
-      }),
+      workerEnv({ DB: db, UPSTASH_REDIS_REST_URL: 'https://redis.example' }),
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, mcp: '/api/mcp' });
+    expect(await response.json()).toMatchObject({ ok: true });
   });
 });

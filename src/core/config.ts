@@ -5,7 +5,7 @@ import {
   DEFAULT_WAIT_SECONDS,
   DEFAULT_WEBHOOK_TIMEOUT_MS,
   MAX_WAIT_SECONDS,
-  MIN_KV_TTL_SECONDS,
+  MIN_JOB_TTL_SECONDS,
 } from './constants';
 import { parseApiKeys } from './auth';
 import type { AppConfig } from './types';
@@ -20,7 +20,7 @@ export function configFromEnv(env: EnvMap): AppConfig {
     apiKeys: parseApiKeys(env.MCP_API_KEY),
     publicBaseUrl: stripTrailingSlash(clean(env.PUBLIC_BASE_URL)),
     waitSeconds: integerEnv(env.WAIT_SECONDS, DEFAULT_WAIT_SECONDS, 0, MAX_WAIT_SECONDS),
-    jobTtlSeconds: integerEnv(env.JOB_TTL_SECONDS, DEFAULT_JOB_TTL_SECONDS, MIN_KV_TTL_SECONDS, 7 * 24 * 60 * 60),
+    jobTtlSeconds: integerEnv(env.JOB_TTL_SECONDS, DEFAULT_JOB_TTL_SECONDS, MIN_JOB_TTL_SECONDS, 7 * 24 * 60 * 60),
     maxMessageBytes: integerEnv(env.MAX_MESSAGE_BYTES, DEFAULT_MAX_MESSAGE_BYTES, 1, 64 * 1024),
     webhookTimeoutMs: integerEnv(env.WEBHOOK_TIMEOUT_MS, DEFAULT_WEBHOOK_TIMEOUT_MS, 1000, 30_000),
     pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,

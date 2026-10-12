@@ -14,6 +14,6 @@ export const MAX_REPLY_BYTES = 64 * 1024;
 export const MAX_REPLY_BODY_BYTES = 128 * 1024;
 export const MAX_THREAD_ID_CHARS = 256;
 export const MAX_KEY_NAME_CHARS = 64;
-export const MIN_KV_TTL_SECONDS = 60;
+export const MIN_JOB_TTL_SECONDS = 60;
 
 export const WEBHOOK_TIMEOUT_MS = DEFAULT_WEBHOOK_TIMEOUT_MS;

@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { CallerRateLimit } from '../src/core/rate-limit';
 import { callTool, testApp, toolText } from './helpers';
 
+describe('CallerRateLimit', () => {
+  it('resets after the window and keeps callers separate', () => {
+    let now = 0;
+    const limit = new CallerRateLimit({ limit: 1, windowMs: 1_000, now: () => now });
+    expect(limit.allow('claude')).toBe(true);
+    expect(limit.allow('claude')).toBe(false);
+    expect(limit.allow('cursor')).toBe(true);
+    now = 1_000;
+    expect(limit.allow('claude')).toBe(true);
+    expect(limit.allow('cursor')).toBe(true);
+  });
+});
+
 describe('ask_bot rate limit', () => {
   it('stops calling the webhook after the caller exceeds the limit', async () => {
     let calls = 0;

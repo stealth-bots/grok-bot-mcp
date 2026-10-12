@@ -4,7 +4,7 @@ const MODERN_PROTOCOL_VERSION = '2026-07-28';
 import { createApp, type App } from '../src/core/app';
 import { configFromEnv, type EnvMap } from '../src/core/config';
 import { createLogger } from '../src/core/log';
-import { MemoryJobStore } from '../src/core/memory-store';
+import { MemoryJobStore } from '../src/lib/job-store';
 import type { AppConfig, AppDeps, LogFn, RateLimit } from '../src/core/types';
 
 export const CLAUDE_SECRET = 'claude-test-secret';

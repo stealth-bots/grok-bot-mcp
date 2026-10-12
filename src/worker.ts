@@ -1,12 +1,11 @@
+import { loadRuntime, pickEnv, type WorkerEnvKey } from './adapters/runtime';
 import { createApp, type App } from './core/app';
 import { json } from './core/http';
-import type { KvBinding } from './core/kv-store';
-import { DurableStoreRequiredError } from './core/store-factory';
 import type { AppConfig } from './core/types';
-import { loadRuntime, pickEnv, type WorkerEnvKey } from './adapters/runtime';
+import { D1BindingRequiredError, type D1Database } from './lib/job-store';
 
 export interface WorkerEnv extends Partial<Record<WorkerEnvKey, string>> {
-  JOBS?: KvBinding;
+  DB?: D1Database;
 }
 
 let cached: { fingerprint: string; app: App } | undefined;
@@ -16,8 +15,8 @@ const worker = {
     try {
       return await appFor(env).fetch(request);
     } catch (error) {
-      if (error instanceof DurableStoreRequiredError) {
-        console.info(JSON.stringify({ event: 'worker_misconfigured', missing: ['store'] }));
+      if (error instanceof D1BindingRequiredError) {
+        console.info(JSON.stringify({ event: 'worker_misconfigured', missing: ['DB'] }));
         return json({ error: 'misconfigured' }, 503);
       }
       if (error instanceof WorkerConfigError) {
@@ -56,15 +55,9 @@ function appFor(env: WorkerEnv): App {
 
 function loadWorkerRuntime(env: WorkerEnv): ReturnType<typeof loadRuntime> {
   try {
-    return loadRuntime(pickEnv(env), { kv: env.JOBS });
+    return loadRuntime(pickEnv(env), { target: 'worker', db: env.DB });
   } catch (error) {
-    if (error instanceof DurableStoreRequiredError) throw error;
-    if (error instanceof Error && error.message.includes('Upstash')) {
-      throw new WorkerConfigError(['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN']);
-    }
-    if (error instanceof Error && error.message.includes('Vercel KV')) {
-      throw new WorkerConfigError(['KV_REST_API_URL', 'KV_REST_API_TOKEN']);
-    }
+    if (error instanceof D1BindingRequiredError) throw error;
     if (error instanceof Error && error.message.includes('MCP_API_KEY')) {
       throw new WorkerConfigError(['MCP_API_KEY']);
     }
@@ -87,6 +80,6 @@ function cacheFingerprint(env: WorkerEnv): string {
   const parts = Object.keys(values)
     .sort()
     .map((key) => `${key}=${values[key] ?? ''}`);
-  parts.push(env.JOBS ? 'kv' : 'nokv');
+  parts.push(env.DB ? 'd1' : 'nod1');
   return parts.join('\n');
 }

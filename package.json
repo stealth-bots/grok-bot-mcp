@@ -13,7 +13,7 @@
     "onlyBuiltDependencies": ["esbuild", "workerd", "sharp"]
   },
   "scripts": {
-    "dev": "node --env-file=.env --import tsx src/dev-server.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx src/dev-server.ts",
     "dev:next": "next dev",
     "build": "next build",
     "typecheck": "tsc --noEmit",

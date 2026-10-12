@@ -1,4 +1,4 @@
-import { parseJobRecord } from './job-record';
+import { parseJobRecord } from './record';
 import type { CompleteResult, JobRecord, JobStore } from './types';
 
 /** One round trip. SET runs only while status is pending, and KEEPTTL leaves the original expiry alone. */

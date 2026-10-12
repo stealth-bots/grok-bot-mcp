@@ -6,7 +6,7 @@ import { loadRuntime } from './adapters/runtime';
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'content-length']);
 
 const runtime = loadRuntime(process.env, {
-  allowMemory: true,
+  target: 'dev',
   log: createLogger((line) => console.info(line)),
 });
 
