@@ -117,6 +117,11 @@ pnpm test
 pnpm typecheck
 ```
 
+## Deploy
+
+- Vercel + Upstash Redis: tested and verified.
+- Cloudflare Workers + D1: implemented but not yet verified in production; community feedback and test reports welcome (open an issue).
+
 ## Deploy on Vercel
 
 The app is a Next.js App Router project. Import the repo and Vercel builds it with no extra config. The routes are `app/api/mcp` and `app/api/reply`. Both set `maxDuration` to 60 seconds. Plans with a shorter cap will cut the request off; set `WAIT_SECONDS` below that cap (for example `8`).
