@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { configFromEnv, readUpstash } from '../src/core/config';
+import { MAX_WAIT_SECONDS } from '../src/core/constants';
 import { KvJobStore, type KvBinding } from '../src/core/kv-store';
 import { handleReply } from '../src/core/reply';
 import { createStore } from '../src/core/store-factory';
@@ -88,11 +89,22 @@ describe('UpstashJobStore', () => {
       token: 'k',
     });
     expect(() => readUpstash({ UPSTASH_REDIS_REST_URL: 'https://u.example' })).toThrow(/Incomplete Upstash/);
-    expect(createStore({}).kind).toBe('memory');
+    expect(() => createStore({})).toThrow(/durable job store/);
+    expect(createStore({}, { allowMemory: true }).kind).toBe('memory');
     expect(
       createStore({ UPSTASH_REDIS_REST_URL: 'https://u.example', UPSTASH_REDIS_REST_TOKEN: 't' }, { kv: fakeKv() }).kind,
     ).toBe('upstash');
     expect(createStore({}, { kv: fakeKv() }).kind).toBe('kv');
+  });
+});
+
+describe('config bounds', () => {
+  it('caps WAIT_SECONDS at 50', () => {
+    expect(configFromEnv({}).waitSeconds).toBe(25);
+    expect(configFromEnv({ WAIT_SECONDS: '0' }).waitSeconds).toBe(0);
+    expect(configFromEnv({ WAIT_SECONDS: '50' }).waitSeconds).toBe(MAX_WAIT_SECONDS);
+    expect(configFromEnv({ WAIT_SECONDS: '300' }).waitSeconds).toBe(MAX_WAIT_SECONDS);
+    expect(configFromEnv({ WAIT_SECONDS: 'nope' }).waitSeconds).toBe(25);
   });
 });
 

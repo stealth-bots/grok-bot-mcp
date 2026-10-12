@@ -1,6 +1,7 @@
 import { json, withNoStore } from './http';
 import { SERVER_NAME } from './constants';
 import { createMcp } from './mcp';
+import { CallerRateLimit } from './rate-limit';
 import { handleMcpAuth, handleReply } from './reply';
 import type { AppDeps } from './types';
 
@@ -10,7 +11,10 @@ export interface App {
 }
 
 export function createApp(deps: AppDeps): App {
-  const mcp = createMcp(deps);
+  const mcp = createMcp({
+    ...deps,
+    rateLimit: deps.rateLimit ?? new CallerRateLimit({ now: deps.now }),
+  });
 
   return {
     async fetch(request: Request): Promise<Response> {

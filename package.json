@@ -7,13 +7,13 @@
   "license": "MIT",
   "packageManager": "pnpm@10.18.1",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild", "workerd", "sharp"]
   },
   "scripts": {
-    "dev": "tsx src/dev-server.ts",
+    "dev": "node --env-file=.env --import tsx src/dev-server.ts",
     "dev:next": "next dev",
     "build": "next build",
     "typecheck": "tsc --noEmit",

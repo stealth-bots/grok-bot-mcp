@@ -38,6 +38,10 @@ export type LogFields = Record<string, string | number | boolean>;
 
 export type LogFn = (event: string, fields: LogFields) => void;
 
+export interface RateLimit {
+  allow(caller: string): boolean;
+}
+
 export interface AppDeps {
   config: AppConfig;
   store: JobStore;
@@ -45,4 +49,5 @@ export interface AppDeps {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   log?: LogFn;
+  rateLimit?: RateLimit;
 }

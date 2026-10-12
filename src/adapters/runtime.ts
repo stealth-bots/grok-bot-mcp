@@ -6,7 +6,13 @@ import type { KvBinding } from '../core/kv-store';
 
 export function loadRuntime(
   env: EnvMap,
-  options?: { kv?: KvBinding; now?: () => number; fetchImpl?: typeof fetch; log?: LogFn },
+  options?: {
+    kv?: KvBinding;
+    now?: () => number;
+    fetchImpl?: typeof fetch;
+    log?: LogFn;
+    allowMemory?: boolean;
+  },
 ): { config: AppConfig; selection: StoreSelection; log: LogFn } {
   const config = configFromEnv(env);
   const selection = createStore(env, options);

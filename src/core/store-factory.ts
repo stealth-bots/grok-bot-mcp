@@ -11,9 +11,18 @@ export interface StoreSelection {
   kind: StoreKind;
 }
 
+export class DurableStoreRequiredError extends Error {
+  constructor() {
+    super(
+      'Refusing to start without a durable job store. Set Upstash Redis REST credentials or bind Workers KV as JOBS.',
+    );
+    this.name = 'DurableStoreRequiredError';
+  }
+}
+
 export function createStore(
   env: EnvMap,
-  options?: { kv?: KvBinding; now?: () => number; fetchImpl?: typeof fetch },
+  options?: { kv?: KvBinding; now?: () => number; fetchImpl?: typeof fetch; allowMemory?: boolean },
 ): StoreSelection {
   const now = options?.now;
   const upstash = readUpstash(env);
@@ -26,5 +35,8 @@ export function createStore(
   if (options?.kv) {
     return { kind: 'kv', store: new KvJobStore(options.kv, now) };
   }
-  return { kind: 'memory', store: new MemoryJobStore(now) };
+  if (options?.allowMemory) {
+    return { kind: 'memory', store: new MemoryJobStore(now) };
+  }
+  throw new DurableStoreRequiredError();
 }
