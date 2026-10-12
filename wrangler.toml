@@ -1,0 +1,16 @@
+name = "grok-bot-mcp"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+
+# Create the namespace with `wrangler kv namespace create JOBS` and replace this id.
+# Optional when UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are set;
+# Upstash is preferred when those variables exist because reads are consistent.
+[[kv_namespaces]]
+binding = "JOBS"
+id = "00000000000000000000000000000000"
+
+[vars]
+# Non-secret defaults. Put real values in `wrangler secret` (see README).
+WAIT_SECONDS = "25"
+JOB_TTL_SECONDS = "86400"
+MAX_MESSAGE_BYTES = "16384"
