@@ -43,6 +43,9 @@ const COMPLETE_IF_PENDING = `UPDATE jobs
 SET status = ?, reply = ?, error = ?
 WHERE job_id = ? AND status = 'pending' AND expires_at > ?`;
 
+/** Every store call removes expired rows, including jobs nobody reads again. */
+const DELETE_EXPIRED = `DELETE FROM jobs WHERE expires_at <= ?`;
+
 export class D1JobStore implements JobStore {
   constructor(
     private readonly db: D1Database,
@@ -50,6 +53,7 @@ export class D1JobStore implements JobStore {
   ) {}
 
   async create(jobId: string, job: JobRecord, ttlSeconds: number): Promise<boolean> {
+    await this.purgeExpired();
     const result = await this.db
       .prepare(INSERT_JOB)
       .bind(
@@ -66,12 +70,14 @@ export class D1JobStore implements JobStore {
   }
 
   async get(jobId: string): Promise<JobRecord | null> {
+    await this.purgeExpired();
     const row = await this.read(jobId);
     if (!row || row.expires_at <= this.now()) return null;
     return rowToJob(row);
   }
 
   async complete(jobId: string, job: JobRecord, _ttlSeconds: number): Promise<CompleteResult> {
+    await this.purgeExpired();
     const updated = await this.db
       .prepare(COMPLETE_IF_PENDING)
       .bind(job.status, job.reply ?? null, job.error ?? null, jobId, this.now())
@@ -87,6 +93,10 @@ export class D1JobStore implements JobStore {
   private async read(jobId: string): Promise<JobRow | null> {
     const row = await this.db.prepare(SELECT_JOB).bind(jobId).first<JobRow>();
     return row ?? null;
+  }
+
+  private async purgeExpired(): Promise<void> {
+    await this.db.prepare(DELETE_EXPIRED).bind(this.now()).run();
   }
 }
 

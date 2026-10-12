@@ -95,13 +95,13 @@ Copy `.env.example` to `.env` for local development. Do not commit `.env`.
 
 Storage follows the process:
 
-1. Cloudflare Workers use the D1 binding `DB`. Completing a job is one `UPDATE ... WHERE status = 'pending'`. The statement changes one row or none, so a second reply gets HTTP 409. The original `expires_at` stays in place.
+1. Cloudflare Workers use the D1 binding `DB`. Completing a job is one `UPDATE ... WHERE status = 'pending'`. The statement changes one row or none, so a second reply gets HTTP 409. The original `expires_at` stays in place. Each store call deletes every row whose `expires_at` has passed, including jobs nobody reads again.
 2. Vercel and other Node hosts use Upstash Redis REST. Completing a job is one atomic Redis update that keeps the existing TTL. A second reply gets HTTP 409.
 3. `pnpm dev` uses an in-memory store for that one process. It does not read Upstash or D1.
 
 ## Local development
 
-Node.js 22 or newer is required.
+Node.js 22.13 or newer is required. `pnpm dev` uses `--env-file-if-exists`, and the tests import `node:sqlite` without a flag.
 
 ```bash
 pnpm install
@@ -160,13 +160,17 @@ npx wrangler secret put PUBLIC_BASE_URL
 npx wrangler deploy
 ```
 
-The migration is `migrations/0001_create_jobs.sql`. It creates the `jobs` table. `npx wrangler dev` applies migrations to the local D1 database. To apply them yourself first, run `npx wrangler d1 migrations apply grok-bot-mcp --local`.
+The migration is `migrations/0001_create_jobs.sql`. It creates the `jobs` table and an index on `expires_at`. `npx wrangler dev` does not apply D1 migrations. Apply them to the local database before starting the Worker:
+
+```bash
+npx wrangler d1 migrations apply grok-bot-mcp --local
+```
 
 `PUBLIC_BASE_URL` is the workers.dev (or custom domain) origin, for example `https://grok-bot-mcp.<account>.workers.dev`.
 
 The Worker fails closed. A request gets HTTP 503 until the `DB` binding is present and until `GROK_BOT_WEBHOOK_URL`, `GROK_BOT_WEBHOOK_KEY`, `REPLY_SECRET`, `MCP_API_KEY`, and `PUBLIC_BASE_URL` are set. It does not use Upstash or the in-memory store. Completion is the same once-only rule as Upstash: the `UPDATE` changes a row only while `status` is `pending`.
 
-For a local Worker, copy the same values into `.dev.vars` (wrangler does not read `.env`) and run `npx wrangler dev`. Check the bundle without deploying:
+For a local Worker, copy the same values into `.dev.vars` (wrangler does not read `.env`), apply the local migration above, and run `npx wrangler dev`. Check the bundle without deploying:
 
 ```bash
 pnpm cf:dry-run

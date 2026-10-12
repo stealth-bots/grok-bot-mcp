@@ -35,11 +35,30 @@ describe('d1 job store', () => {
     expect(await store.get('job-1')).toMatchObject({ reply: 'yes' });
   });
 
+  it('deletes expired rows, including ones nobody reads, and allows the id to be reused', async () => {
+    let now = 1_000_000;
+    const db = createSqliteD1();
+    const store = new D1JobStore(db, () => now);
+    const pending = { status: 'pending' as const, caller: 'claude', createdAt: 0 };
+    expect(await store.create('old', pending, 60)).toBe(true);
+    expect(await store.create('fresh', pending, 60)).toBe(true);
+    now += 60_000;
+    expect(await store.get('fresh')).toBeNull();
+    expect(await jobIds(db)).toEqual([]);
+
+    expect(await store.create('old', pending, 60)).toBe(true);
+    expect(await store.create('unread', pending, 30)).toBe(true);
+    now += 30_000;
+    expect(await store.get('old')).toMatchObject({ status: 'pending' });
+    expect(await jobIds(db)).toEqual(['old']);
+  });
+
   it('applies the jobs migration', () => {
     const sql = readFileSync(new URL('../migrations/0001_create_jobs.sql', import.meta.url), 'utf8');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS jobs');
     expect(sql).toContain('job_id TEXT PRIMARY KEY');
     expect(sql).toContain('expires_at INTEGER NOT NULL');
+    expect(sql).toContain('CREATE INDEX IF NOT EXISTS jobs_expires_at ON jobs (expires_at)');
   });
 });
 
@@ -58,6 +77,11 @@ describe('job store factory', () => {
     expect(() => createJobStore({ target: 'node', upstash: null })).toThrow(/Upstash/);
   });
 });
+
+async function jobIds(db: D1Database): Promise<string[]> {
+  const rows = await db.prepare('SELECT job_id FROM jobs ORDER BY job_id').all<{ job_id: string }>();
+  return (rows.results ?? []).map((row) => row.job_id);
+}
 
 function recordingD1(inner: D1Database, queries: string[]): D1Database {
   return {

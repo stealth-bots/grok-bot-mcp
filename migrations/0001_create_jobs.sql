@@ -7,3 +7,5 @@ CREATE TABLE IF NOT EXISTS jobs (
   error TEXT,
   expires_at INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS jobs_expires_at ON jobs (expires_at);
