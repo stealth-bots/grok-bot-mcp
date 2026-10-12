@@ -28,6 +28,12 @@ export class KvJobStore implements JobStore {
     return parseJobRecord(raw);
   }
 
+  /**
+   * Workers KV cannot compare-and-set. Two callbacks that both read `pending`
+   * can both write, and the later write wins. Job ids are random and the bot
+   * replies once, so that race is acceptable. Use Upstash when a second reply
+   * must fail instead of replacing the first.
+   */
   async complete(jobId: string, job: JobRecord, ttlSeconds: number): Promise<CompleteResult> {
     const current = await this.get(jobId);
     if (!current) return 'missing';

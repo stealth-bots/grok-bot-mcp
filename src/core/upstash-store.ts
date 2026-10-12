@@ -1,12 +1,22 @@
-import { parseJobRecord, remainingTtlSeconds } from './job-record';
+import { parseJobRecord } from './job-record';
 import type { CompleteResult, JobRecord, JobStore } from './types';
+
+/** One round trip. SET runs only while status is pending, and KEEPTTL leaves the original expiry alone. */
+const COMPLETE_IF_PENDING = [
+  "local raw = redis.call('GET', KEYS[1])",
+  'if not raw then return "missing" end',
+  'local current = cjson.decode(raw)',
+  'if current["status"] ~= "pending" then return "not_pending" end',
+  "redis.call('SET', KEYS[1], ARGV[1], 'KEEPTTL')",
+  'return "updated"',
+].join('\n');
 
 export class UpstashJobStore implements JobStore {
   constructor(
     private readonly url: string,
     private readonly token: string,
     private readonly fetchImpl: typeof fetch = fetch,
-    private readonly now: () => number = () => Date.now(),
+    _now: () => number = () => Date.now(),
     private readonly keyPrefix = 'grok-bot-mcp:job:',
   ) {}
 
@@ -21,14 +31,16 @@ export class UpstashJobStore implements JobStore {
     return parseJobRecord(result);
   }
 
-  async complete(jobId: string, job: JobRecord, ttlSeconds: number): Promise<CompleteResult> {
-    const current = await this.get(jobId);
-    if (!current) return 'missing';
-    if (current.status !== 'pending') return 'not_pending';
-    const remaining = remainingTtlSeconds(current, this.now(), ttlSeconds);
-    if (remaining <= 0) return 'missing';
-    await this.command(['SET', this.key(jobId), JSON.stringify(job), 'EX', String(remaining)]);
-    return 'updated';
+  async complete(jobId: string, job: JobRecord, _ttlSeconds: number): Promise<CompleteResult> {
+    const result = await this.command(['EVAL', COMPLETE_IF_PENDING, '1', this.key(jobId), JSON.stringify(job)]);
+    switch (result) {
+      case 'missing':
+      case 'not_pending':
+      case 'updated':
+        return result;
+      default:
+        throw new Error('job store command failed');
+    }
   }
 
   private key(jobId: string): string {

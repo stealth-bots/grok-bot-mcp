@@ -90,8 +90,8 @@ Copy `.env.example` to `.env` for local development. Do not commit `.env`.
 
 Storage choice, in order:
 
-1. Upstash (or Vercel KV) REST, if those variables are set. Use this in production, including on Cloudflare, if you want `ask_bot` to observe the callback within the wait window.
-2. Cloudflare Workers KV binding `JOBS`, if present and Upstash is not set. KV is eventually consistent, so a reply written by the callback can stay invisible to the waiting request for a while. `get_reply` a bit later is the reliable path on KV.
+1. Upstash (or Vercel KV) REST, if those variables are set. Use this in production, including on Cloudflare, if you want `ask_bot` to observe the callback within the wait window. Completing a job is one atomic Redis update that keeps the existing TTL. A second reply for that job gets HTTP 409.
+2. Cloudflare Workers KV binding `JOBS`, if present and Upstash is not set. KV is eventually consistent, so a reply written by the callback can stay invisible to the waiting request for a while. `get_reply` a bit later is the reliable path on KV. KV cannot compare-and-set, so a duplicate reply for the same job is last-write-wins. That is acceptable because job ids are random and the bot replies once. Use Upstash when you need strict once-only completion.
 3. In-memory, for local `pnpm dev` and tests only.
 
 ## Local development
