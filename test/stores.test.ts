@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { configFromEnv, readUpstash } from '../src/core/config';
-import { KvJobStore, type KvBinding } from '../src/core/kv-store';
+import { MAX_WAIT_SECONDS } from '../src/core/constants';
 import { handleReply } from '../src/core/reply';
-import { createStore } from '../src/core/store-factory';
-import { UpstashJobStore } from '../src/core/upstash-store';
-import type { JobRecord } from '../src/core/types';
+import { UpstashJobStore, type JobRecord } from '../src/lib/job-store';
+import { fakeRedis } from './fake-upstash';
 
 const job = (status: JobRecord['status'] = 'pending'): JobRecord => ({
   status,
@@ -88,71 +87,18 @@ describe('UpstashJobStore', () => {
       token: 'k',
     });
     expect(() => readUpstash({ UPSTASH_REDIS_REST_URL: 'https://u.example' })).toThrow(/Incomplete Upstash/);
-    expect(createStore({}).kind).toBe('memory');
-    expect(
-      createStore({ UPSTASH_REDIS_REST_URL: 'https://u.example', UPSTASH_REDIS_REST_TOKEN: 't' }, { kv: fakeKv() }).kind,
-    ).toBe('upstash');
-    expect(createStore({}, { kv: fakeKv() }).kind).toBe('kv');
   });
 });
 
-describe('KvJobStore', () => {
-  it('writes with a TTL of at least 60 seconds', async () => {
-    const kv = fakeKv();
-    const store = new KvJobStore(kv, () => 0);
-    expect(await store.create('job-1', job(), 10)).toBe(true);
-    expect(kv.ttls.get('job:job-1')).toBe(60);
-    expect(await store.get('job-1')).toMatchObject({ caller: 'claude' });
-    expect(await store.complete('job-1', { ...job('error'), error: 'nope' }, 10)).toBe('updated');
-    expect(await store.get('missing')).toBeNull();
+describe('config bounds', () => {
+  it('caps WAIT_SECONDS at 50', () => {
+    expect(configFromEnv({}).waitSeconds).toBe(25);
+    expect(configFromEnv({ WAIT_SECONDS: '0' }).waitSeconds).toBe(0);
+    expect(configFromEnv({ WAIT_SECONDS: '50' }).waitSeconds).toBe(MAX_WAIT_SECONDS);
+    expect(configFromEnv({ WAIT_SECONDS: '300' }).waitSeconds).toBe(MAX_WAIT_SECONDS);
+    expect(configFromEnv({ WAIT_SECONDS: 'nope' }).waitSeconds).toBe(25);
   });
 });
-
-interface FakeRedis {
-  commands: string[][];
-  ttls: Map<string, number>;
-  fetchImpl: typeof fetch;
-}
-
-function fakeRedis(): FakeRedis {
-  const saved = new Map<string, string>();
-  const ttls = new Map<string, number>();
-  const commands: string[][] = [];
-  const fetchImpl: typeof fetch = async (input, init) => {
-    const command = JSON.parse(String(init?.body)) as string[];
-    commands.push(command);
-    const headers = new Headers(init?.headers);
-    expect(headers.get('authorization')).toBe('Bearer secret-token');
-    expect(String(input)).toBe('https://redis.example');
-    const op = command[0];
-    if (op === 'SET' && command.includes('NX')) {
-      const key = command[1] ?? '';
-      if (saved.has(key)) return Response.json({ result: null });
-      saved.set(key, command[2] ?? '');
-      const ex = command.indexOf('EX');
-      ttls.set(key, Number(command[ex + 1]));
-      return Response.json({ result: 'OK' });
-    }
-    if (op === 'SET') {
-      const key = command[1] ?? '';
-      saved.set(key, command[2] ?? '');
-      return Response.json({ result: 'OK' });
-    }
-    if (op === 'GET') return Response.json({ result: saved.get(command[1] ?? '') ?? null });
-    if (op === 'EVAL') {
-      const key = command[3] ?? '';
-      const next = command[4] ?? '';
-      const current = saved.get(key);
-      if (current === undefined) return Response.json({ result: 'missing' });
-      const parsed = JSON.parse(current) as { status?: string };
-      if (parsed.status !== 'pending') return Response.json({ result: 'not_pending' });
-      saved.set(key, next);
-      return Response.json({ result: 'updated' });
-    }
-    return Response.json({ error: 'bad command' }, { status: 200 });
-  };
-  return { commands, ttls, fetchImpl };
-}
 
 function replyRequest(jobId: string, body: { reply: string }): Request {
   return new Request('https://mcp.example/api/reply', {
@@ -163,19 +109,4 @@ function replyRequest(jobId: string, body: { reply: string }): Request {
     },
     body: JSON.stringify({ job_id: jobId, ...body }),
   });
-}
-
-function fakeKv(): KvBinding & { ttls: Map<string, number | undefined> } {
-  const values = new Map<string, string>();
-  const ttls = new Map<string, number | undefined>();
-  return {
-    ttls,
-    async get(key) {
-      return values.get(key) ?? null;
-    },
-    async put(key, value, options) {
-      values.set(key, value);
-      ttls.set(key, options?.expirationTtl);
-    },
-  };
 }

@@ -44,7 +44,7 @@ describe('ask_bot round trip', () => {
     expect(call?.headers.get('x-automation-key')).toBe(WEBHOOK_KEY);
     expect(call?.headers.get('content-type')).toBe('application/json');
     expect(call?.body).toMatchObject({
-      thread_id: 'thread-1',
+      thread_id: 'claude:thread-1',
       caller: 'claude',
       message: 'Reply with pong',
       reply_url: 'https://mcp.example/api/reply',
@@ -74,16 +74,33 @@ describe('ask_bot round trip', () => {
   });
 
   it('returns pending when the bot does not call back', async () => {
-    const { app } = testApp({
+    const { app, store } = testApp({
       config: { waitSeconds: 0 },
       fetchImpl: async () => new Response('awake', { status: 200 }),
     });
     const asked = await callTool(app, 'ask_bot', { message: 'hello' });
+    expect(asked.rpc.result?.isError).toBeUndefined();
     expect(asked.rpc.result?.structuredContent).toMatchObject({ status: 'pending' });
     const jobId = String(asked.rpc.result?.structuredContent?.job_id);
+    expect(await store.get(jobId)).toMatchObject({ status: 'pending' });
+    expect((await store.get(jobId))?.error).toBeUndefined();
     const pending = await callTool(app, 'get_reply', { job_id: jobId });
     expect(pending.rpc.result?.structuredContent).toMatchObject({ status: 'pending', job_id: jobId });
     expect(toolText(pending.rpc)).toContain(jobId);
+  });
+
+  it('scopes thread_id to the caller so two callers do not share a thread', async () => {
+    const threads: string[] = [];
+    const { app } = testApp({
+      config: { waitSeconds: 0 },
+      fetchImpl: async (_input, init) => {
+        threads.push(String((JSON.parse(String(init?.body)) as { thread_id: unknown }).thread_id));
+        return new Response('awake', { status: 200 });
+      },
+    });
+    await callTool(app, 'ask_bot', { message: 'hi', thread_id: 'shared' });
+    await callTool(app, 'ask_bot', { message: 'hi', thread_id: 'shared' }, 'cursor-test-secret');
+    expect(threads).toEqual(['claude:shared', 'cursor:shared']);
   });
 
   it('records the cursor key name as caller', async () => {
@@ -163,9 +180,9 @@ describe('webhook failures', () => {
     expect(toolText(asked.rpc)).toContain('HTTP 302');
   });
 
-  it('reports a timeout after one attempt', async () => {
+  it('keeps the job pending and returns job_id when the webhook times out', async () => {
     let calls = 0;
-    const { app } = testApp({
+    const { app, store } = testApp({
       config: { webhookTimeoutMs: 20 },
       fetchImpl: (_input, init) => {
         calls += 1;
@@ -180,8 +197,21 @@ describe('webhook failures', () => {
     });
     const asked = await callTool(app, 'ask_bot', { message: 'hi' });
     expect(calls).toBe(1);
-    expect(asked.rpc.result?.isError).toBe(true);
-    expect(toolText(asked.rpc)).toContain('timed out');
+    expect(asked.rpc.result?.isError).toBeUndefined();
+    const jobId = String(asked.rpc.result?.structuredContent?.job_id);
+    expect(asked.rpc.result?.structuredContent).toMatchObject({ status: 'pending', job_id: jobId });
+    expect(await store.get(jobId)).toMatchObject({ status: 'pending' });
+    expect((await store.get(jobId))?.error).toBeUndefined();
+
+    const reply = await postJson(
+      app,
+      '/api/reply',
+      { job_id: jobId, reply: 'late pong' },
+      { authorization: `Bearer ${REPLY_SECRET}` },
+    );
+    expect(reply.status).toBe(200);
+    const got = await callTool(app, 'get_reply', { job_id: jobId });
+    expect(got.rpc.result?.structuredContent).toMatchObject({ status: 'done', reply: 'late pong' });
   });
 });
 

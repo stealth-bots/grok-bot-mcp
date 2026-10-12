@@ -4,8 +4,8 @@ const MODERN_PROTOCOL_VERSION = '2026-07-28';
 import { createApp, type App } from '../src/core/app';
 import { configFromEnv, type EnvMap } from '../src/core/config';
 import { createLogger } from '../src/core/log';
-import { MemoryJobStore } from '../src/core/memory-store';
-import type { AppConfig, AppDeps, LogFn } from '../src/core/types';
+import { MemoryJobStore } from '../src/lib/job-store';
+import type { AppConfig, AppDeps, LogFn, RateLimit } from '../src/core/types';
 
 export const CLAUDE_SECRET = 'claude-test-secret';
 export const CURSOR_SECRET = 'cursor-test-secret';
@@ -28,6 +28,7 @@ export function testApp(options?: {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   config?: Partial<AppConfig>;
+  rateLimit?: RateLimit;
 }): TestApp {
   const now = options?.now ?? (() => Date.now());
   const store = new MemoryJobStore(now);
@@ -54,6 +55,7 @@ export function testApp(options?: {
     now,
     sleep: options?.sleep,
     log,
+    rateLimit: options?.rateLimit,
   };
   return { app: createApp(deps), store, logs, log, config, deps };
 }

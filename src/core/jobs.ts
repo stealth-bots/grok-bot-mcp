@@ -40,6 +40,10 @@ export async function askBot(
   const webhookUrlError = validateHttpUrl(deps.config.webhookUrl, 'GROK_BOT_WEBHOOK_URL');
   if (webhookUrlError) return { kind: 'tool_error', message: webhookUrlError };
 
+  if (deps.rateLimit && !deps.rateLimit.allow(input.caller)) {
+    return { kind: 'tool_error', message: 'rate limit exceeded for this caller; try again shortly' };
+  }
+
   const now = deps.now ?? Date.now;
   const jobId = crypto.randomUUID();
   const record: JobRecord = { status: 'pending', caller: input.caller, createdAt: now() };
@@ -54,7 +58,7 @@ export async function askBot(
     deps.config.webhookKey as string,
     {
       job_id: jobId,
-      thread_id: input.threadId ?? null,
+      thread_id: scopedThreadId(input.caller, input.threadId),
       caller: input.caller,
       message: input.message,
       reply_url: replyUrl.url,
@@ -63,13 +67,23 @@ export async function askBot(
   );
 
   if (!webhook.ok) {
-    await deps.store.complete(
-      jobId,
-      { ...record, status: 'error', error: webhookFailure(webhook) },
-      deps.config.jobTtlSeconds,
-    );
     deps.log?.('webhook_failed', { job_id: jobId, status: webhook.status ?? 0 });
-    return { kind: 'tool_error', message: webhookFailure(webhook) };
+    switch (webhook.reason) {
+      case 'timeout':
+        return { kind: 'result', job: await jobForCaller(deps, jobId, input.caller) };
+      case 'status':
+      case 'network':
+        await deps.store.complete(
+          jobId,
+          { ...record, status: 'error', error: webhookFailure(webhook) },
+          deps.config.jobTtlSeconds,
+        );
+        return { kind: 'tool_error', message: webhookFailure(webhook) };
+      default: {
+        const _never: never = webhook.reason;
+        return _never;
+      }
+    }
   }
 
   return { kind: 'result', job: await waitForJob(deps, jobId, input.caller) };
@@ -130,6 +144,17 @@ function replyUrlFor(base: string | undefined): { ok: true; url: string } | { ok
   const problem = validateHttpUrl(base, 'PUBLIC_BASE_URL');
   if (problem || !base) return { ok: false, message: problem ?? 'server is missing PUBLIC_BASE_URL' };
   return { ok: true, url: `${base}/api/reply` };
+}
+
+function scopedThreadId(caller: string, threadId: string | undefined): string | null {
+  if (threadId === undefined) return null;
+  return `${caller}:${threadId}`;
+}
+
+async function jobForCaller(deps: AppDeps, jobId: string, caller: string): Promise<PublicJob> {
+  const job = await deps.store.get(jobId);
+  if (!job || job.caller !== caller) return { job_id: jobId, status: 'pending' };
+  return toPublic(jobId, job);
 }
 
 function webhookFailure(result: Extract<WebhookResult, { ok: false }>): string {

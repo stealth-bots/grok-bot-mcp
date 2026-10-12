@@ -12,7 +12,7 @@ const askInput = z.object({
     .min(1)
     .max(256)
     .optional()
-    .describe('Optional conversation id to continue. Omit to start a new conversation.'),
+    .describe('Optional conversation id to continue. Omit to start a new conversation. The server scopes it to this API key.'),
 });
 
 const jobOutput = z.object({

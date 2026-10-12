@@ -1,4 +1,4 @@
-import { parseJobRecord } from './job-record';
+import { parseJobRecord } from './record';
 import type { CompleteResult, JobRecord, JobStore } from './types';
 
 interface Entry {
@@ -29,8 +29,7 @@ export class MemoryJobStore implements JobStore {
     if (!current) return 'missing';
     if (current.status !== 'pending') return 'not_pending';
     const existing = this.jobs.get(jobId);
-    if (!existing) return 'missing';
-    if (existing.expiresAt - this.now() <= 0) {
+    if (!existing || existing.expiresAt <= this.now()) {
       this.jobs.delete(jobId);
       return 'missing';
     }

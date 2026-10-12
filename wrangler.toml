@@ -2,12 +2,13 @@ name = "grok-bot-mcp"
 main = "src/worker.ts"
 compatibility_date = "2026-10-01"
 
-# Create the namespace with `wrangler kv namespace create JOBS` and replace this id.
-# Optional when UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are set;
-# Upstash is preferred when those variables exist because reads are consistent.
-[[kv_namespaces]]
-binding = "JOBS"
-id = "00000000000000000000000000000000"
+# Create the database with `npx wrangler d1 create grok-bot-mcp` and replace this id.
+# Apply migrations/0001_create_jobs.sql with `npx wrangler d1 migrations apply grok-bot-mcp --remote`.
+[[d1_databases]]
+binding = "DB"
+database_name = "grok-bot-mcp"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
 
 [vars]
 # Non-secret defaults. Put real values in `wrangler secret` (see README).
